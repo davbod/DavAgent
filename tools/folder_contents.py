@@ -50,6 +50,6 @@ def list_folder_contents(path: str = ".") -> str:
         return f"Error listing folder contents: {e}"
 
 
-TOOLS = {
-    "list_folder_contents": list_folder_contents,
-}
+# Deprecated in favor of the richer filesystem.list_directory tool. Kept for
+# reference but not exported to AVAILABLE_TOOLS.
+TOOLS = {}
