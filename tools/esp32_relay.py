@@ -6,6 +6,6 @@ def trigger_esp32_relay(device_ip: str, action: str):
     return f"Success: {device_ip} relay set to {action}"
 
 
-TOOLS = {
-    "trigger_esp32_relay": trigger_esp32_relay,
-}
+# The ESP32 relay tool is currently a placeholder and not needed for this project.
+# It has been removed from the exported TOOLS dictionary to avoid auto‑loaded.
+TOOLS = {}

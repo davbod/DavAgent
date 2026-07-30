@@ -3,6 +3,7 @@ import re
 import requests
 import json
 from tools import AVAILABLE_TOOLS
+from tools.memory import get_memory_snapshot
 
 # Configuration
 OLLAMA_URL = "http://localhost:11434/api/chat"
@@ -36,7 +37,7 @@ You have access to the following tools:
 - get_time_date()
 - list_folder_contents(path: str)
 - save_memory(summary: str)         — call this when the user asks you to remember or save the conversation
-- load_memory()                     — call this to read notes from previous sessions
+- load_memory()                     — call this to read notes from previous sessions (use it when you need to recall past information).
 - create_file(path: str, content: str = "")          — create a new file with optional content
 - create_folder(path: str)                           — create a new folder
 - delete_file(path: str)                             — delete a single file
@@ -98,16 +99,29 @@ def main():
         messages.append({"role": "user", "content": user_input})
 
         while True:
+            # Update system prompt with latest memory snapshot
+            messages[0]["content"] = BASE_SYSTEM_PROMPT + get_memory_snapshot()
             # 1. Ask Ollama what to do next
             payload = {"model": MODEL, "messages": messages, "stream": False}
             try:
                 response = requests.post(OLLAMA_URL, json=payload).json()
-                bot_reply = response["message"]["content"].strip()
+                # Defensive check for expected structure
+                if isinstance(response, dict) and "message" in response and isinstance(response["message"], dict) and "content" in response["message"]:
+                    bot_reply = response["message"]["content"].strip()
+                else:
+                    bot_reply = "[no response]"
+                if not bot_reply:
+                    bot_reply = "I couldn't retrieve a response from the model."
+                # Ensure bot_reply is not empty for platform validation
+
             except Exception as e:
                 print(f"\n[Error connecting to Ollama] {e}")
                 break
 
             # 2. Extract ALL tool calls from this reply and run them
+            # Ensure we have a fallback response for empty bot_reply
+            if not bot_reply:
+                bot_reply = "[no response]"
             tool_calls = _extract_all_tool_calls(bot_reply)
             if tool_calls:
                 messages.append({"role": "assistant", "content": bot_reply})
@@ -132,6 +146,9 @@ def main():
                 continue  # Let the model read results and respond
 
             # 3. Final Output — no tool calls found, treat as plain text response
+            # Final safeguard: ensure non-empty response for platform validation
+            if not bot_reply:
+                bot_reply = "[no response]"
             print(f"Agent: {bot_reply}")
             messages.append({"role": "assistant", "content": bot_reply})
             break  # Exit inner loop, wait for next user input
