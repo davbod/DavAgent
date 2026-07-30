@@ -1,18 +1,11 @@
-import subprocess
+from datetime import datetime
 
 
 def get_time_date():
-    """Runs the local PowerShell Get-Date command and returns the current date and time."""
-    print("\n   [Executing] -> Running PowerShell Get-Date...")
-    result = subprocess.run(
-        ["powershell", "-Command", "Get-Date"],
-        capture_output=True,
-        text=True
-    )
-    output = result.stdout.strip()
-    if result.returncode != 0:
-        return f"Error retrieving date/time: {result.stderr.strip()}"
-    return f"Current date and time: {output}"
+    """Returns the current local date and time."""
+    print("\n   [Executing] -> Getting current date/time...")
+    now = datetime.now().astimezone()
+    return f"Current date and time: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}"
 
 
 TOOLS = {
