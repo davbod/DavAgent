@@ -1,0 +1,185 @@
+# DavAgent Dev Log
+
+An engineering diary: what changed, **why**, what was rejected, and what we learned.
+Code and commits record *what* the project does; this file records the thinking that
+produced it, including the dead ends — those are usually the expensive part to rediscover.
+
+Entries are newest-first. The idea below is the stable part; everything under it is history.
+
+---
+
+## The Idea
+
+DavAgent is a **low-profile, local, moddable agent assistant**. A person runs it on their
+own laptop against their own model, and it can actually do things — read and write files,
+remember, research, look things up — without any of that leaving the machine.
+
+Four principles drive most decisions here. When a choice is hard, these are the tiebreakers:
+
+1. **Local and private by default.** The model is local (Ollama). Data stays on disk in
+   plain files. Reaching for a cloud service should feel like a deliberate exception, not
+   the default path.
+2. **Small dependency budget.** `requests` and nothing else, so far. Every new dependency
+   must earn its place against the stdlib. This has already cost us capability (see the
+   HTML extraction note, 2026-08-14) and that was judged the right trade.
+3. **Moddable by a hobbyist.** Drop a `.py` file in `tools/`, give the function type hints
+   and a docstring, export `TOOLS`. The JSON schema the model needs is generated from that.
+   Nobody should ever hand-write a tool schema, and nobody should have to read the whole
+   codebase to add a capability.
+4. **Readable over clever.** This is a project someone should be able to sit down and
+   understand in an evening.
+
+**Working method (from 2026-08-15):** spec-driven. Each segment gets a lightweight spec in
+`docs/specs/` that the project lead approves *before* implementation, and design/review work
+is fanned out across parallel agents rather than done in a single pass. Tests accompany every
+change and must run with no network and no live Ollama.
+
+---
+
+## 2026-08-15 — Process: spec-driven development, and this log
+
+**What changed.** Introduced this dev log, a `docs/specs/` directory, and a standing working
+method: research and design each segment via parallel multi-agent workflows, write a
+lightweight spec, get lead approval, *then* implement against it with tests.
+
+**Why.** The work up to this point was good but improvised — decisions were made mid-flow and
+only survived in the transcript. Two things were being lost: the *reasoning* behind a design
+(why the library is separate from memory, why stdlib HTML parsing over BeautifulSoup), and the
+*negative* results (what we tried that didn't work). The tide experiment on 2026-08-14 is the
+clearest example: it produced the single most useful finding so far, and none of it lived
+anywhere durable.
+
+**Also.** Committed the accumulated work as three logical commits on `chore/pre-spec-baseline`
+so the process starts from a clean, described tree rather than a pile of unstaged changes.
+
+---
+
+## 2026-08-14 — The Cape Town tide experiment (the useful failure)
+
+**What we did.** Ran DavAgent end-to-end against a real research task — "what time is high tide
+tomorrow in Cape Town" — and watched the tool-call trace live, with the intent of killing it if
+it looped or hallucinated.
+
+**What happened.** Four fetches across two domains, then a clean surrender:
+
+| # | URL | Result |
+|---|---|---|
+| 1 | `tide-forecast.com/locations/Cape-Town-South-Africa/tides` | HTTP 404 |
+| 2 | `tide-forecast.com/locations/Cape-Town/tides` | HTTP 404 |
+| 3 | `weathersa.co.za/tides/cape-town` | HTTP 200, empty SPA shell |
+| 4 | `weathersa.co.za/tides/capetown` | HTTP 200, empty SPA shell |
+
+It then told the user it couldn't retrieve real data and suggested checking a browser.
+
+**What we learned — three separate things, worth keeping distinct:**
+
+1. **The model's judgment was fine.** Faced with four failures it declined to invent a
+   high-tide time. For a tool-using local model that is exactly the right failure mode, and
+   it's worth noting because it's the part we didn't have to fix.
+
+2. **A real bug in our own code.** `weathersa.co.za` returned `Content-Type: text/HTML` —
+   capital HTML. `fetch_url`'s check was `"html" in content_type`, case-sensitive, so it missed,
+   fell through to the plain-text branch, and dumped raw markup and Cloudflare JS into the
+   model's context instead of extracting text or reporting that the page had none. We fed the
+   model garbage and it reasonably went and guessed another URL. Fixed by lowercasing before
+   the check, with two regression tests.
+
+3. **The actual capability gap.** DavAgent cannot *discover* a URL — only guess one from what
+   the model remembers. Pages 1 and 2 were the same guess with different slug spellings. This
+   is structural, not a tuning problem, and is why web search is the next segment.
+
+**Secondary finding, not yet addressed.** Nothing in the agent loop caps retries or notices
+near-identical repeated calls. The model self-limited this time; it isn't guaranteed to.
+Logged as a candidate segment.
+
+**Method note.** Piping a query into `main.py` and watching a filtered log proved a genuinely
+good way to evaluate agent behaviour. Worth keeping as the standard way to test changes to the
+loop — unit tests can't catch "it guessed four URLs and gave up".
+
+---
+
+## 2026-08-14 — Memory vs. Library: splitting continuity from knowledge
+
+**What changed.** Added `tools/library.py` — a searchable corpus of markdown entries, ranked by
+semantic similarity using a local `all-minilm` embedding model — alongside the existing
+`memory.md`. Also added `fetch_url`, so "research" can mean actually looking something up
+rather than only reasoning over what's typed in.
+
+**Why.** `memory.md` was doing two incompatible jobs. Conversational continuity wants to be
+small and *always* in context. Accumulated knowledge wants to be unbounded and retrieved *only
+when relevant*. One file cannot be both: as memory grows, every single turn pays for knowledge
+it doesn't need, and the model's attention gets diluted by irrelevant notes.
+
+So: memory stays small and is injected into the system prompt every turn. The library is never
+injected wholesale — the model calls `search_library` when a query warrants it, and pays context
+only for what comes back.
+
+**Design decisions and their trade-offs:**
+
+- **Semantic embeddings over keyword/TF-IDF search.** Keyword search is dependency-free and
+  deterministic, but purely literal — a query for "car" never finds an entry about "vehicle".
+  Since Ollama is already running, a 46MB embedding model is nearly free and needs no new pip
+  dependency, just another HTTP call. *Known limitation:* each entry is embedded as one vector,
+  and `all-minilm`'s effective context is a few hundred tokens, so a long write-up's tail barely
+  influences its ranking. Chunked embeddings are the fix when this bites.
+
+- **One markdown file per entry, not a database.** Keeps entries human-readable, hand-editable,
+  and diffable — consistent with how `memory.md` already works. `library/index.json` holds the
+  vectors, is gitignored (it churns on every save and would bloat diffs), and is fully
+  regenerable via `rebuild_library_index` — which is exposed as a tool precisely so a fresh
+  checkout can recover.
+
+- **Proactive saves, but announced.** The model saves research on its own initiative rather than
+  waiting to be asked, but must tell the user it did. Silent auto-save would mean a growing
+  store nobody is tracking; manual-only would mean it rarely happens.
+
+- **stdlib `html.parser` over `beautifulsoup4`.** Preserved the requests-only dependency budget
+  at the cost of cruder extraction on messy HTML — no smart handling of nav/footer boilerplate.
+  A deliberate application of principle 2. Revisit if fetches turn out to be consistently noisy.
+
+**Not solved by this.** The library only helps if the agent can find information in the first
+place. See the tide entry above.
+
+---
+
+## 2026-08-14 — First tests, and the bug they found
+
+**What changed.** The project had no tests at all. Added a pytest suite covering every tool plus
+`main.py`'s Ollama-connectivity logic, entirely mocked — no network, no subprocess, no live
+Ollama needed. Also pinned `urllib3<2`.
+
+**Why mocked throughout.** A test suite that needs an 18GB model resident to run is a test suite
+nobody runs.
+
+**The bug.** `list_directory` called `os.listdir` on each subdirectory to report an item count,
+unguarded. A single permission-denied subfolder raised and discarded the **entire** listing.
+
+The interesting part is why it survived review: `search_files` does conceptually the same walk
+and never had this problem, because `os.walk` swallows the equivalent `OSError` internally. Two
+functions that look equivalent, one silently protected by its stdlib call and one not. That
+asymmetry is invisible unless you either read `os.walk`'s implementation or write the test.
+
+**The urllib3 pin.** Apple's system Python links against LibreSSL, not OpenSSL, and urllib3 v2
+warns loudly on *import* — so it appeared on every pytest run and every `main.py` startup, even
+though no test opens a real connection. Pinning below v2 was cleaner than silencing the warning
+in pytest config, which would have left it in the user's face during normal use.
+
+---
+
+## Before this log (reconstructed from the code and commit history)
+
+*Written after the fact — this reasoning is inferred from the code and commits, not recorded at
+the time.*
+
+The architectural decision that shapes everything else: tools are exposed via **Ollama's native
+function-calling**, with JSON schemas generated automatically from each function's signature and
+Google-style docstring (`tools/__init__.py`). The model returns a structured `tool_calls` list.
+
+The alternative — prompting the model to emit JSON and regex-scraping it out of the response —
+is what the project moved *away* from. Native calling removes a whole class of parse failures
+and, combined with auto-discovery, is what makes principle 3 real: adding a tool is genuinely
+one file with no schema and no registration boilerplate.
+
+Two supporting choices: streaming (`stream=True`) so a live indicator can show during the long
+stretches qwen3 spends generating reasoning tokens, rather than dead air; and `think=True`, which
+routes reasoning to a separate field so `content` arrives clean with no `<think>` tags to scrub.
