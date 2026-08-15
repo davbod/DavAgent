@@ -16,6 +16,11 @@ env/
 # Environment variables
 .env
 
+# Library search index: regenerable from library/*.md via
+# tools.library.rebuild_library_index(); ignored because it holds raw
+# embedding vectors that would otherwise churn on every single save.
+library/index.json
+
 # IDE / Editor
 .vscode/
 .idea/
