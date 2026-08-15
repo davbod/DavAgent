@@ -1,0 +1,5 @@
+requests
+# Apple's system Python (/usr/bin/python3) links against LibreSSL, not
+# OpenSSL. urllib3 v2 warns loudly (NotOpenSSLWarning) the moment it's
+# imported under that combination; pinning below the v2 line avoids it.
+urllib3<2
