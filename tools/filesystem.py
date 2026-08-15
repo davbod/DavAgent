@@ -182,8 +182,11 @@ def list_directory(path: str = ".") -> str:
         for name in sorted(entries, key=lambda x: x.lower()):
             full = os.path.join(abs_path, name)
             if os.path.isdir(full):
-                count = len(os.listdir(full))
-                folders.append(f"  [DIR]  {name}/  ({count} items)")
+                try:
+                    count = len(os.listdir(full))
+                    folders.append(f"  [DIR]  {name}/  ({count} items)")
+                except PermissionError:
+                    folders.append(f"  [DIR]  {name}/  (permission denied)")
             else:
                 size = os.path.getsize(full)
                 mtime = datetime.fromtimestamp(os.path.getmtime(full)).strftime("%Y-%m-%d %H:%M")
