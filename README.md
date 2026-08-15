@@ -4,6 +4,7 @@ A low profile, simple, local LLM powered, moddable agent assistant.
 ## Project Structure
 - `main.py` – Core execution loop, tool registration, and system prompt handling.
 - `DEVLOG.md` – Engineering diary: the reasoning behind each feature, alternatives rejected, and lessons from things that didn't work. Start here to understand *why* the project looks the way it does.
+- `docs/specs/` – One lightweight spec per segment of work, approved before implementation. See `docs/specs/README.md` for the process.
 - `memory.md` – Persistent conversation memory, refreshed into the system prompt at the start of every turn.
 - `library/` – Persistent research/knowledge base (markdown entries + a regenerable `index.json`). Not injected into every prompt like `memory.md` — retrieved on demand via `search_library`. See "Memory vs. Library" below.
 - `tools/` – Package containing utility tools:
