@@ -16,6 +16,10 @@ env/
 # Environment variables
 .env
 
+# Raw salvaged agent-workflow output: large, noisy, unsynthesized. The findings
+# worth keeping are distilled into docs/specs/ instead.
+.workflow-research/
+
 # Library search index: regenerable from library/*.md via
 # tools.library.rebuild_library_index(); ignored because it holds raw
 # embedding vectors that would otherwise churn on every single save.

@@ -36,6 +36,56 @@ change and must run with no network and no live Ollama.
 
 ---
 
+## 2026-08-17 — The design workflow failed; what we kept, and where to resume
+
+**What happened.** The 11-agent workflow launched on 2026-08-15 to design the web-search
+segment **did not complete**. Of the agents that ran, exactly two reached a normal end of turn:
+the repo-conformance researcher and the security judge. Every other agent died mid-tool-call.
+Two of the research agents were retried roughly six times each and never finished. The final
+synthesis step never ran, so **no spec was produced**.
+
+**Diagnosis (partial, honest).** Two contributing causes are visible in the transcripts:
+
+1. At least one tool call came back `Permission for this tool use was denied`. Agents running
+   in the background have nobody to answer a permission prompt, so work that needs approval
+   stalls rather than proceeding.
+2. The agents were mid-flight when the session went idle, and did not survive to be resumed.
+   Workflow resume is same-session only, so the partial state could not simply be continued.
+
+I have not proven these are the *whole* story, and I'm recording that uncertainty rather than
+tidying it away.
+
+**What this cost, and what we kept.** The run consumed a lot of tokens for one usable research
+document. Before stopping, the salvageable output was extracted from the raw agent transcripts
+into `.workflow-research/001-web-search/` (gitignored) and the substance distilled into
+`docs/specs/001-web-search-notes.md` (committed, with a provenance table — measured findings are
+marked separately from unverified claims).
+
+The genuinely valuable survivor: an agent **empirically probed** keyless search endpoints instead
+of theorising. DuckDuckGo's HTML endpoint answers `HTTP 202` with a captcha when it thinks you're
+a bot and self-clears in about three minutes; `startpage` returns `200` with a JS-only body —
+failing exactly the way `weathersa.co.za` did in the tide test; `ecosia` and `yep` return `403`.
+That is worth more than any of the lost prose.
+
+**Lessons for how we run workflows.**
+
+- **Long autonomous fan-outs are fragile across an idle session.** For a hobby-scale project,
+  a smaller workflow that finishes inside one sitting beats a thorough one that dies at 80%.
+- **Give background agents no reason to need permission.** Anything requiring approval should be
+  done in the main session, not inside a background fan-out.
+- **Journal the intermediate results, not just the final return.** The one completed research
+  doc was recoverable only because it happened to be journaled; the rest had to be reconstructed
+  from raw transcripts, and mostly couldn't be.
+- **Measurement beat argument.** The one agent that made real HTTP requests produced the only
+  durable finding. Bias future research prompts toward "go and test it" over "assess the options".
+
+**Where to resume.** First: verify or kill the unverified lead that Ollama offers a native web
+search API — it would change the backend decision, and Ollama is already a hard dependency.
+Then finish the keyed-backend comparison and write the spec. Nothing is blocked; the tree is
+clean and the baseline is committed.
+
+---
+
 ## 2026-08-15 — Process: spec-driven development, and this log
 
 **What changed.** Introduced this dev log, a `docs/specs/` directory, and a standing working
