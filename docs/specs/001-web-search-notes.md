@@ -1,10 +1,16 @@
 # 001 — Web search: research notes (spec not yet written)
 
-**Status:** research incomplete — spec pending
+**Status:** superseded by `001-web-search.md`
 **Date:** 2026-08-15 (research attempt), 2026-08-17 (salvaged and written up)
 
-The design workflow for this segment **did not finish** (see `DEVLOG.md`, 2026-08-17). These are
-the findings that survived, kept because they cost real effort and are worth not re-running.
+> **Update, same day:** the workflow completed after ~50 hours, shortly after this was written,
+> and produced a spec — see `001-web-search.md`. This file is kept as the record of what was
+> salvageable mid-run, and because its provenance table is what the synthesis agent read.
+> **The Ollama lead below is now confirmed** (`POST https://ollama.com/api/web_search`, Bearer
+> auth) and is the spec's preferred backend.
+
+These are the findings that survived, kept because they cost real effort and are worth not
+re-running.
 
 ## Provenance — read before trusting anything here
 
@@ -12,7 +18,7 @@ the findings that survived, kept because they cost real effort and are worth not
 |---|---|---|
 | Repo conformance checklist | Agent read the codebase directly; completed normally | High — verifiable against the repo |
 | Search-engine reachability table | Agent made **real HTTP requests** and recorded status codes | Medium-high — measured, but on one residential IP on one day |
-| Ollama native web search API | Surfaced in a web search; **never verified** | Low — must be confirmed before it informs a decision |
+| Ollama native web search API | Surfaced in a web search; **since CONFIRMED live** — see update above | ~~Low~~ → High |
 | Security judge notes | Judged proposals that had already died; scores meaningless | Low — reasoning may be reusable, scores are not |
 
 Raw dumps are in `.workflow-research/001-web-search/` (gitignored).

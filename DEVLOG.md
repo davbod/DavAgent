@@ -36,7 +36,59 @@ change and must run with no network and no live Ollama.
 
 ---
 
+## 2026-08-17 (later) — Correction: the workflow did finish, ~50 hours in
+
+**Correcting the entry below, which is wrong.** I checked the workflow, found no completion,
+diagnosed it as dead, wrote it up as a failure, and committed that. Minutes later it completed
+— after a **50-hour** wall-clock run. Final tally: 11 agents, 5 completed, 6 errored (two
+research agents stalled through all 6 retry attempts, and all three proposal agents died).
+
+I'm leaving the failure post-mortem below intact rather than rewriting it, because its process
+lessons still hold and because a devlog that quietly edits out its author's wrong calls is worth
+less than one that doesn't. But its headline conclusion — "no spec was produced" — was wrong.
+
+**What it actually produced.** A strong spec, now written up as `docs/specs/001-web-search.md`
+(status: awaiting approval). The synthesis agent worked around its dead upstream: with all three
+proposals empty, the judges returned BLOCKED, so it read the repo and the salvaged research
+notes I had committed that morning and did the analysis itself. The salvage work fed the run
+that made the salvage look premature.
+
+**Three findings that matter more than the spec:**
+
+1. **The tide mystery is solved, and it vindicates the whole segment.** A real search returns
+   `.../Cape-Town-South-Africa/tides/latest`. The agent's 404'd guess was `.../tides` — **wrong
+   by one path segment**. No amount of permutation reaches that. Discovery really was the binding
+   constraint, not extraction.
+
+2. **A live SSRF hole in code I wrote and committed.** `tools/web.py` validates only the URL
+   scheme, so `fetch_url` can reach `http://localhost:11434/api/*` — the user's own Ollama
+   control plane, which can delete models — plus `169.254.169.254` and all RFC1918 space, and
+   `requests` follows redirects with no revalidation. Latent while the model guessed its own
+   URLs; reachable the moment a third party supplies them. Flagged to the lead, not silently
+   patched.
+
+3. **A prompt-injection amplification path through the architecture.** `main.py` appends tool
+   output with no trust separation *and* rebuilds the system prompt from `memory.md` every turn,
+   while `save_memory` is model-callable without confirmation. One injected `save_memory` call
+   becomes a persistent system-prompt implant surviving restart. That is an emergent consequence
+   of two individually reasonable choices — proactive memory saves, and refreshing memory each
+   turn — and neither looked risky on its own.
+
+**Revised process lessons.** The one below ("long fan-outs are fragile") needs amending: the
+run was not fragile so much as *unbounded*. It burned 859k subagent tokens over 50 hours with no
+wall-clock ceiling, and I had no way to tell "stalled" from "still thinking" — which is why I
+called it dead. Next time: cap the run, and treat absence of a result as unknown rather than
+failure. Two of my three original lessons survive unchanged, and the best one is confirmed
+twice over — **the agents told to go and measure produced everything durable; the agents asked
+to assess produced nothing recoverable.**
+
+---
+
 ## 2026-08-17 — The design workflow failed; what we kept, and where to resume
+
+> **Superseded in its conclusion by the entry above** — the workflow completed shortly after
+> this was written. The diagnosis and process lessons here still stand; "no spec was produced"
+> does not.
 
 **What happened.** The 11-agent workflow launched on 2026-08-15 to design the web-search
 segment **did not complete**. Of the agents that ran, exactly two reached a normal end of turn:
