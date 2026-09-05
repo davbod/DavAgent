@@ -36,6 +36,125 @@ change and must run with no network and no live Ollama.
 
 ---
 
+## 2026-09-02 (later) — Persistent session, and a measurement that lied
+
+Phase 2's first piece landed: `PersistentClaudeBrain` holds one `claude -p` process open
+and feeds each utterance in over stdin as a turn, instead of spawning a session per turn.
+Each turn is delimited by a `result` event, which is what makes reading one turn at a time
+tractable.
+
+**Measured, fairly, same questions back to back:**
+
+| Brain | First word per turn | Mean |
+|---|---|---|
+| One-shot, session per turn | 2.62 / 3.92 / 3.30 / 2.54 s | 3.09 s |
+| Persistent, warm | 2.06 / 1.94 / 1.66 / 1.79 s | 1.86 s |
+
+A 40% cut, about 1.2 s a turn. Worth having, and the remaining 1.9 s is the floor for a
+cloud round trip from Cape Town — not something more tuning will fix.
+
+**The lesson is in how nearly this went wrong.** The first probe reported 0.16-0.69 s for
+warm turns, four times better than the real figure. It was measuring an artefact: the
+probe broke out of reading as soon as it saw the first token and immediately wrote the
+next question, so each request was queued while the previous turn was still streaming.
+The model had the next question in hand before it was asked. Pipelined, not fast.
+
+Nothing about the probe looked wrong, and the number it produced was the number we wanted
+to see, which is exactly when a measurement deserves the most suspicion. Caught only by
+re-running the same questions through the real class and getting 1.86 s. **Benchmark the
+thing you ship, not a sketch of it** — and be most sceptical of a result that flatters
+the change you just made.
+
+`warm()` costs ~3.9 s at startup and buys the first real question the warm figure rather
+than the cold one. The one-shot brain stays as `--one-shot-brain`, and both now share the
+same event-parsing helpers so they cannot drift apart.
+
+---
+
+## 2026-09-02 — Jarvis phase 1: it listens, thinks and talks back
+
+Built the voice front-end from spec 002. Phase 1 works end to end: speech in, spoken
+answer out, conversation carried across utterances. What follows is what the spec got
+wrong, because that is the expensive part to rediscover.
+
+**Two principles took a knock, deliberately.** Principle 2 says `requests` and nothing
+else; Jarvis adds `sounddevice`, `numpy` and `mlx-whisper`. Principle 1 says local by
+default; the default brain is Claude, in the cloud. Both were judged worth it — there is
+no stdlib path to a microphone or a speech model, and the local brain is still there
+behind the same interface. The blast radius is contained: the dependencies live in
+`.venv-jarvis` and `requirements-jarvis.txt`, so DavAgent core still installs on
+`requests` alone and its tests still pass untouched (121 of them, then 124).
+
+**The denylist leaked, and that is the finding worth remembering.** Phase 1 is meant to
+be conversation only — touching a real system is phase 4 and needs a ticket first. The
+first attempt enumerated the tools to deny: Bash, Edit, Write, Read and so on. Asked to
+run `whoami`, Jarvis reached the same shell through a tool that was not on the list and
+returned the answer. Denying the things you can think of is not a boundary. Only
+`--disallowed-tools "*"` held. Allow capability back explicitly, per phase — never
+subtract it.
+
+Worth knowing how that leak was found: not by reading the code, but by asking Jarvis to
+do the forbidden thing and watching. The first end-to-end run had already shown the same
+shape — asked casually how many tickets were waiting, it went and queried Jira for real,
+because the CLI brain inherits the full toolset by default. Impressive, and exactly what
+the spec said must not happen yet.
+
+**Denying every tool has a side effect.** With nothing to call, the model sometimes writes
+tool-call syntax into its visible text instead — `<parameter name=...>` and friends — which
+the speech synthesiser then reads out character by character. Fixed in two places: the
+system prompt now states plainly that there are no tools, and the muzzle strips tag-shaped
+text before anything can be spoken. Belt and braces, because the prompt is advice and the
+muzzle is a gate.
+
+**Latency, measured rather than guessed.** The spec estimated whisper at 0.3–0.6 s and
+first token at 0.8–1.5 s, so about 2 s to first word. Reality on the M5: transcription is
+0.11 s once warm — five times better than estimated — but the first token takes 2.5–3.0 s,
+so the real figure is nearer 2.6 s. The model load costs 1.45 s on first use, now paid at
+startup instead of inside the first sentence.
+
+The latency is not process startup: the CLI binary itself launches in 0.06 s. It is
+session initialisation, once per turn. Stripping settings to avoid it made things
+dramatically worse — 15.5 s versus 2.0 s, presumably losing a warm prompt cache — so the
+fix is not less context but fewer starts. Phase 2 should hold one CLI process open and
+feed it utterances via `--input-format stream-json`.
+
+**Three departures from the spec, all for the same reason — get to a working loop sooner.**
+Python 3.11 rather than 3.14, because wheels exist for it. `mlx-whisper` rather than
+whisper.cpp, because it is a pip install rather than a toolchain, and at 0.11 s there is
+nothing to gain by building C++. Terminal push-to-talk rather than a global hotkey,
+because a tool that has never spoken yet has not earned macOS Input Monitoring permission.
+
+Whisper heard the name as "Jervis" until given a vocabulary hint. It now hears "Jarvis".
+
+Everything up to the microphone was verified by having `say` generate the audio and
+feeding that back through transcription — a genuinely useful trick for testing STT with
+no mic, no permission prompt, and a known-correct transcript to compare against.
+
+**Then the live run, which found two bugs the synthetic one structurally could not.**
+Both exchanges worked — it heard a South African accent correctly first time, unprompted
+— but the terminal filled with phantom turns: prompts printing two to a line, then
+"(nothing heard)" for a turn nobody took.
+
+The cause was buffered stdin. Enter presses made while Jarvis was transcribing or talking
+sat in the terminal buffer and then satisfied the next two prompts instantly, opening and
+closing a recording with nothing in it. Obvious in hindsight, invisible to every test we
+had: piped stdin never queues behind a slow consumer the way a human at a keyboard does.
+Fixed by draining the terminal buffer before prompting — and only when stdin is a real
+tty, because piped input is deliberate and must never be thrown away.
+
+The second bug was in the same area. `record_between_enters` caught `EOFError` and
+returned silence, so Ctrl-D never reached the loop that knows how to quit: it printed
+"(nothing heard)" forever and had to be killed with Ctrl-C. The fix was to stop catching
+it. A handler that converts "the user is done" into "the user said nothing" is worse than
+no handler at all.
+
+The lesson worth keeping: the synthetic harness proved the pipeline, but every defect it
+missed lived in the boundary between the program and a human at a terminal — timing,
+buffering, and the difference between silence and EOF. Test the pipeline synthetically;
+test the interaction with a person.
+
+---
+
 ## 2026-08-17 (later) — Correction: the workflow did finish, ~50 hours in
 
 **Correcting the entry below, which is wrong.** I checked the workflow, found no completion,

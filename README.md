@@ -14,6 +14,9 @@ A low profile, simple, local LLM powered, moddable agent assistant.
   - `filesystem.py` – Comprehensive file & folder creation, deletion, browsing, searching, reading, and writing.
   - `time_date.py` – Retrieves current time and date.
   - `local_logs.py` – Collects recent system logs and CPU metrics (cross-platform: Windows/macOS/Linux).
+- `jarvis/` – Voice front-end: talk to the agent, hear it answer. Separate venv and
+  dependencies (`requirements-jarvis.txt`) so core stays on `requests` alone.
+  Run it with `.venv-jarvis/bin/python -m jarvis`. See `docs/specs/002-jarvis-voice.md`.
 - `tests/` – pytest suite covering every tool and `main.py`'s Ollama-connectivity logic.
 - `.git/`, `.gitignore`, `LICENSE` – Standard repository metadata.
 

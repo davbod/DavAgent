@@ -34,3 +34,6 @@ library/index.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Jarvis voice front-end venv (see requirements-jarvis.txt)
+.venv-jarvis/

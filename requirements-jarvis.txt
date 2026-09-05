@@ -1,0 +1,10 @@
+# Jarvis (voice front-end) only. DavAgent core still runs on requirements.txt
+# alone — keep it that way. See DEVLOG.md, 2026-09-02.
+#
+#   python3.11 -m venv .venv-jarvis
+#   .venv-jarvis/bin/pip install -r requirements-jarvis.txt
+#
+# sounddevice needs portaudio: brew install portaudio
+sounddevice>=0.5
+numpy>=2.0
+mlx-whisper>=0.4
